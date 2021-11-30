@@ -43,6 +43,7 @@ executable(plugin_name,
     libgimpui_dep,
     math,
     winsock,
+    gi,
   ],
   c_args: [
     '-DSTANDALONE=0',

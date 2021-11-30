@@ -34,6 +34,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)		\
 	$(GTK_CFLAGS)		\
 	$(GEGL_CFLAGS)		\
+	$(INTROSPECTION_CFLAGS)	\
 	-I$(includedir)		\
 	-DSTANDALONE=0		\
 	-DUSE_INTERFACE=1	\
@@ -105,6 +106,7 @@ LDADD = \
 	$(WINSOCK_LIBS)		\
 	$(RT_LIBS)		\
 	$(INTLLIBS)		\
+	$(INTROSPECTION_LIBS)	\
 	$(script_fu_RC)
 
 
