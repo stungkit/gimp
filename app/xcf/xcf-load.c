@@ -70,6 +70,8 @@
 #include "vectors/gimpbezierstroke.h"
 #include "vectors/gimpvectors.h"
 #include "vectors/gimpvectors-compat.h"
+#include "vectors/gimpvectorlayer.h"
+#include "vectors/gimpvectorlayer-xcf.h"
 
 #include "xcf-private.h"
 #include "xcf-load.h"
@@ -2583,7 +2585,7 @@ xcf_load_layer (XcfInfo    *info,
 
   xcf_progress_update (info);
 
-  /* call the evil text layer hack that might change our layer pointer */
+  /* call the evil text and vector layer hacks that might change our layer pointer */
   selected = g_list_find (info->selected_layers, layer);
   linked   = g_list_find (info->linked_layers, layer);
   floating = (info->floating_sel == layer);
@@ -2602,6 +2604,16 @@ xcf_load_layer (XcfInfo    *info,
         {
           info->linked_layers = g_list_delete_link (info->linked_layers, linked);
           info->linked_layers = g_list_prepend (info->linked_layers, layer);
+        }
+      if (floating)
+        info->floating_sel = layer;
+    }
+  else if (gimp_vector_layer_xcf_load_hack (&layer))
+    {
+      if (selected)
+        {
+          info->selected_layers = g_list_delete_link (info->selected_layers, selected);
+          info->selected_layers = g_list_prepend (info->selected_layers, layer);
         }
       if (floating)
         info->floating_sel = layer;

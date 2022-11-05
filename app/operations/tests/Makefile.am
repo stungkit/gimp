@@ -32,6 +32,7 @@ AM_LDFLAGS = \
 	-Wl,-u,$(SYMPREFIX)gimp_plug_in_manager_restore		\
 	-Wl,-u,$(SYMPREFIX)gimp_vectors_undo_get_type		\
 	-Wl,-u,$(SYMPREFIX)gimp_vectors_mod_undo_get_type	\
+	-Wl,-u,$(SYMPREFIX)gimp_vector_layer_undo_get_type		\
 	-Wl,-u,$(SYMPREFIX)gimp_vectors_prop_undo_get_type
 
 # Note that we have some duplicate entries here too to work around

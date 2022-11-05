@@ -54,6 +54,9 @@ void   vectors_delete_cmd_callback               (GimpAction *action,
 void   vectors_merge_visible_cmd_callback        (GimpAction *action,
                                                   GVariant   *value,
                                                   gpointer    data);
+void   vectors_to_vector_layer_cmd_callback      (GimpAction *action,
+                                                  GVariant   *value,
+                                                  gpointer    data);
 void   vectors_to_selection_cmd_callback         (GimpAction *action,
                                                   GVariant   *value,
                                                   gpointer    data);

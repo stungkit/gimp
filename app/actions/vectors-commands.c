@@ -44,6 +44,7 @@
 #include "pdb/gimppdb.h"
 #include "pdb/gimpprocedure.h"
 
+#include "vectors/gimpvectorlayer.h"
 #include "vectors/gimpvectors.h"
 #include "vectors/gimpvectors-export.h"
 #include "vectors/gimpvectors-import.h"
@@ -484,6 +485,28 @@ vectors_merge_visible_cmd_callback (GimpAction *action,
       g_clear_error (&error);
       return;
     }
+
+  gimp_image_flush (image);
+}
+
+void
+vectors_to_vector_layer_cmd_callback (GimpAction *action,
+                                      GVariant   *value,
+                                      gpointer    data)
+{
+  GimpImage       *image;
+  GimpVectors     *vectors;
+  GimpVectorLayer *layer;
+  return_if_no_vectors_list (image, vectors, data);
+
+  layer = gimp_vector_layer_new (image, vectors,
+                                 gimp_get_user_context (image->gimp));
+  gimp_image_add_layer (image,
+                        GIMP_LAYER (layer),
+                        GIMP_IMAGE_ACTIVE_PARENT,
+                        -1,
+                        TRUE);
+  gimp_vector_layer_refresh (layer);
 
   gimp_image_flush (image);
 }

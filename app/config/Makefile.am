@@ -87,6 +87,7 @@ test_config_DEPENDENCIES = $(gimpconfig_libs)
 test_config_LDFLAGS = \
 	-Wl,-u,$(SYMPREFIX)gimp_vectors_undo_get_type		\
 	-Wl,-u,$(SYMPREFIX)gimp_vectors_mod_undo_get_type	\
+	-Wl,-u,$(SYMPREFIX)gimp_vector_layer_undo_get_type		\
 	-Wl,-u,$(SYMPREFIX)gimp_config_param_spec_duplicate		\
 	-Wl,-u,$(SYMPREFIX)xcf_init				\
 	-Wl,-u,$(SYMPREFIX)internal_procs_init			\

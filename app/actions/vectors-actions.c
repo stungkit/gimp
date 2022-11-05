@@ -157,7 +157,12 @@ static const GimpActionEntry vectors_actions[] =
   { "vectors-import", GIMP_ICON_DOCUMENT_OPEN,
     NC_("vectors-action", "I_mport Path..."), "", NULL,
     vectors_import_cmd_callback,
-    GIMP_HELP_PATH_IMPORT }
+    GIMP_HELP_PATH_IMPORT },
+
+  { "vectors-to-vector-layer", NULL,
+    NC_("vectors-actions", "Path to Vector Layer"), "", NULL,
+    vectors_to_vector_layer_cmd_callback,
+    NULL }
 };
 
 static const GimpToggleActionEntry vectors_toggle_actions[] =
@@ -437,6 +442,8 @@ vectors_actions_update (GimpActionGroup *group,
   SET_SENSITIVE ("vectors-paste",  image);
   SET_SENSITIVE ("vectors-export", n_selected_vectors > 0);
   SET_SENSITIVE ("vectors-import", image);
+
+  SET_SENSITIVE ("vectors-to-vector-layer", n_selected_vectors > 0);
 
   SET_SENSITIVE ("vectors-selection-to-vectors",          image && !mask_empty);
   SET_SENSITIVE ("vectors-selection-to-vectors-short",    image && !mask_empty);
