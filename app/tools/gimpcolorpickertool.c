@@ -31,6 +31,7 @@
 #include "core/gimp.h"
 #include "core/gimpdrawable.h"
 #include "core/gimpimage.h"
+#include "core/gimpimage-color-profile.h"
 #include "core/gimptoolinfo.h"
 
 #include "widgets/gimpcolorframe.h"
@@ -432,9 +433,13 @@ gimp_color_picker_tool_info_update (GimpColorPickerTool *picker_tool,
                                     gint                 x,
                                     gint                 y)
 {
-  GimpTool  *tool      = GIMP_TOOL (picker_tool);
-  GimpImage *image     = gimp_display_get_image (display);
-  GList     *drawables = gimp_image_get_selected_drawables (image);
+  GimpTool         *tool          = GIMP_TOOL (picker_tool);
+  GimpImage        *image         = gimp_display_get_image (display);
+  GimpColorProfile *color_profile = gimp_image_get_color_profile (image);
+  GimpRGB           temp_color;
+  GList            *drawables     = gimp_image_get_selected_drawables (image);
+  const Babl       *fish;
+  const Babl       *space;
 
   tool->display = display;
 
@@ -443,8 +448,20 @@ gimp_color_picker_tool_info_update (GimpColorPickerTool *picker_tool,
   gimp_tool_gui_set_viewables (picker_tool->gui, drawables);
   g_list_free (drawables);
 
+  if (color_profile)
+    space = gimp_color_profile_get_space (color_profile,
+                                          GIMP_COLOR_RENDERING_INTENT_RELATIVE_COLORIMETRIC,
+                                          NULL);
+  else
+    space = babl_format_get_space (sample_format);
+
+  fish = babl_fish (babl_format ("R'G'B'A double"),
+                    babl_format_with_space ("R'G'B'A double", space));
+
+  babl_process (fish, color, &temp_color, 1);
+
   gimp_color_area_set_color (GIMP_COLOR_AREA (picker_tool->color_area),
-                             color);
+                             &temp_color, space, space, space);
 
   gimp_color_frame_set_color (GIMP_COLOR_FRAME (picker_tool->color_frame1),
                               sample_average, sample_format, pixel, color,

@@ -336,7 +336,8 @@ gimp_action_impl_set_proxy (GimpActionImpl *impl,
 
       if (GIMP_IS_COLOR_AREA (area))
         {
-          gimp_color_area_set_color (GIMP_COLOR_AREA (area), impl->color);
+          gimp_color_area_set_color (GIMP_COLOR_AREA (area), impl->color,
+                                     NULL, NULL, NULL);
         }
       else
         {

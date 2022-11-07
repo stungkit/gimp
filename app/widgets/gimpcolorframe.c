@@ -80,6 +80,9 @@ static void       gimp_color_frame_image_changed       (GimpColorFrame *frame,
                                                         GimpImage      *image,
                                                         GimpContext    *context);
 
+static void       gimp_color_frame_update_color_profile
+                                                       (GimpImage        *image,
+                                                        GimpColorFrame   *frame);
 static void       gimp_color_frame_update_simulation   (GimpImage        *image,
                                                         GimpColorFrame   *frame);
 
@@ -698,6 +701,9 @@ gimp_color_frame_set_image (GimpColorFrame *frame,
       if (frame->image)
         {
           g_signal_handlers_disconnect_by_func (frame->image,
+                                                gimp_color_frame_update_color_profile,
+                                                frame);
+          g_signal_handlers_disconnect_by_func (frame->image,
                                                 gimp_color_frame_update_simulation,
                                                 frame);
           g_object_unref (frame->image);
@@ -710,6 +716,9 @@ gimp_color_frame_set_image (GimpColorFrame *frame,
     {
       g_object_ref (frame->image);
 
+      g_signal_connect (frame->image, "profile-changed",
+                        G_CALLBACK (gimp_color_frame_update_color_profile),
+                        frame);
       g_signal_connect (frame->image, "simulation-profile-changed",
                         G_CALLBACK (gimp_color_frame_update_simulation),
                         frame);
@@ -717,6 +726,7 @@ gimp_color_frame_set_image (GimpColorFrame *frame,
                         G_CALLBACK (gimp_color_frame_update_simulation),
                         frame);
 
+      gimp_color_frame_update_color_profile (frame->image, frame);
       gimp_color_frame_update_simulation (frame->image, frame);
     }
 }
@@ -746,6 +756,7 @@ gimp_color_frame_update (GimpColorFrame *frame)
   const gchar      *tooltip[GIMP_COLOR_FRAME_ROWS] = { NULL, };
   gboolean          has_alpha;
   GimpColorProfile *color_profile                  = NULL;
+  const Babl       *space;
   gint              i;
 
   g_return_if_fail (GIMP_IS_COLOR_FRAME (frame));
@@ -757,7 +768,7 @@ gimp_color_frame_update (GimpColorFrame *frame)
       gchar str[16];
 
       gimp_color_area_set_color (GIMP_COLOR_AREA (frame->color_area),
-                                 &frame->color);
+                                 &frame->color, NULL, NULL, NULL);
 
       g_snprintf (str, sizeof (str), "%d", frame->x);
       gtk_label_set_text (GTK_LABEL (frame->coords_label_x), str);
@@ -773,22 +784,41 @@ gimp_color_frame_update (GimpColorFrame *frame)
       gtk_label_set_text (GTK_LABEL (frame->coords_label_y), C_("Coordinates", "n/a"));
     }
 
+  color_profile = frame->profile;
+
+  if (color_profile)
+    space = gimp_color_profile_get_space (color_profile,
+                                          GIMP_COLOR_RENDERING_INTENT_RELATIVE_COLORIMETRIC,
+                                          NULL);
+  else
+    space = babl_format_get_space (frame->sample_format);
+
   switch (frame->pick_mode)
     {
+    case GIMP_COLOR_PICK_MODE_RGB_U8:
+    case GIMP_COLOR_PICK_MODE_RGB_PERCENT:
+      {
+        if (color_profile && ! gimp_color_profile_is_rgb (color_profile))
+          space = NULL;
+      }
+      /* Fall-through */
+
     case GIMP_COLOR_PICK_MODE_PIXEL:
       {
         GimpImageBaseType  base_type;
+        GimpRGB            color_with_space;
+        gchar            **values_with_space = NULL;
         GimpTRCType        trc;
-        const Babl        *space;
 
         base_type = gimp_babl_format_get_base_type (frame->sample_format);
         trc       = gimp_babl_format_get_trc (frame->sample_format);
-        space     = babl_format_get_space (frame->sample_format);
 
         if (frame->sample_valid)
           {
             const Babl *print_format = NULL;
             guchar      print_pixel[32];
+            gchar     **v;
+            gchar     **tmp;
 
             switch (gimp_babl_format_get_precision (frame->sample_format))
               {
@@ -819,6 +849,20 @@ gimp_color_frame_update (GimpColorFrame *frame)
                 break;
               }
 
+            /* For RGB (%) and RGB (0...255) modes, we predefine
+             * the destination space
+             */
+            if (frame->pick_mode == GIMP_COLOR_PICK_MODE_RGB_U8)
+              print_format = gimp_babl_format (GIMP_RGB,
+                                               GIMP_PRECISION_U8_NON_LINEAR,
+                                               has_alpha,
+                                               space);
+            else if (frame->pick_mode == GIMP_COLOR_PICK_MODE_RGB_PERCENT)
+              print_format = gimp_babl_format (GIMP_RGB,
+                                               GIMP_PRECISION_FLOAT_NON_LINEAR,
+                                               has_alpha,
+                                               space);
+
             if (frame->sample_average)
               {
                 /* FIXME: this is broken: can't use the averaged sRGB GimpRGB
@@ -834,9 +878,72 @@ gimp_color_frame_update (GimpColorFrame *frame)
               }
 
             values = gimp_babl_print_pixel (print_format, print_pixel);
+            if (frame->pick_mode == GIMP_COLOR_PICK_MODE_RGB_PERCENT)
+              {
+                values[0] = g_strdup_printf ("%.01f %%", atof (values[0]) * 100.0);
+                values[1] = g_strdup_printf ("%.01f %%", atof (values[1]) * 100.0);
+                values[2] = g_strdup_printf ("%.01f %%", atof (values[2]) * 100.0);
+                if (has_alpha)
+                  values[3] = g_strdup_printf ("%.01f %%", atof (values[3]) * 100.0);
+              }
+
+            /* Update ColorArea out-of-gamut symbol */
+            print_format = gimp_babl_format (GIMP_RGB,
+                                             GIMP_PRECISION_FLOAT_NON_LINEAR,
+                                             has_alpha,
+                                             space);
+            babl_process (babl_fish (frame->sample_format, print_format),
+                          frame->pixel, print_pixel, 1);
+            values_with_space = gimp_babl_print_pixel (print_format, print_pixel);
+
+            gimp_rgb_set (&color_with_space,
+                          atof (values_with_space[0]),
+                          atof (values_with_space[1]),
+                          atof (values_with_space[2]));
+            if (has_alpha)
+              gimp_rgb_set_alpha (&color_with_space, atof (values_with_space[3]));
+
+            gimp_color_area_set_color (GIMP_COLOR_AREA (frame->color_area),
+                                       &color_with_space, space, space, space);
+
+            /* Allocate space for profile label */
+            v   = g_new0 (gchar *, 6);
+            tmp = values;
+
+            memcpy (v, values, 4 * sizeof (gchar *));
+            values = v;
+            g_free (tmp);
+
+            if (frame->pick_mode != GIMP_COLOR_PICK_MODE_PIXEL)
+              {
+                guchar  r;
+                guchar  g;
+                guchar  b;
+                guchar  a;
+
+                names[4] = C_("Color representation", "Hex:");
+                gimp_rgba_get_uchar (&color_with_space, &r, &g, &b, &a);
+                values[4] = g_strdup_printf ("%.2x%.2x%.2x", r, g, b);
+              }
+
+            if (color_profile)
+              {
+                const gchar *profile_label;
+
+                names[5] = C_("Color", "Profile:");
+                profile_label = gimp_color_profile_get_label (color_profile);
+                values[5] = g_strdup_printf (_("%s"), profile_label);
+                tooltip[5] = g_strdup_printf (_("%s"), profile_label);
+              }
+            else
+              {
+                names[5] = C_("Color", "No Profile");
+              }
           }
 
-        if (base_type == GIMP_GRAY)
+        if (base_type == GIMP_GRAY                           &&
+            (frame->pick_mode != GIMP_COLOR_PICK_MODE_RGB_U8 &&
+             frame->pick_mode != GIMP_COLOR_PICK_MODE_RGB_PERCENT))
           {
             /* TRANSLATORS: V for Value (grayscale) */
             names[0] = C_("Grayscale", "V:");
@@ -882,49 +989,6 @@ gimp_color_frame_update (GimpColorFrame *frame)
               }
           }
       }
-      break;
-
-    case GIMP_COLOR_PICK_MODE_RGB_PERCENT:
-    case GIMP_COLOR_PICK_MODE_RGB_U8:
-      /* TRANSLATORS: R for Red (RGB) */
-      names[0] = C_("RGB", "R:");
-      /* TRANSLATORS: G for Green (RGB) */
-      names[1] = C_("RGB", "G:");
-      /* TRANSLATORS: B for Blue (RGB) */
-      names[2] = C_("RGB", "B:");
-
-      if (has_alpha)
-        /* TRANSLATORS: A for Alpha (color transparency) */
-        names[3] = C_("Alpha channel", "A:");
-
-      /* TRANSLATORS: Hex for Hexadecimal (representation of a color) */
-      names[4] = C_("Color representation", "Hex:");
-
-      if (frame->sample_valid)
-        {
-          guchar r, g, b, a;
-
-          values = g_new0 (gchar *, 6);
-
-          gimp_rgba_get_uchar (&frame->color, &r, &g, &b, &a);
-
-          if (frame->pick_mode == GIMP_COLOR_PICK_MODE_RGB_PERCENT)
-            {
-              values[0] = g_strdup_printf ("%.01f %%", frame->color.r * 100.0);
-              values[1] = g_strdup_printf ("%.01f %%", frame->color.g * 100.0);
-              values[2] = g_strdup_printf ("%.01f %%", frame->color.b * 100.0);
-              values[3] = g_strdup_printf ("%.01f %%", frame->color.a * 100.0);
-            }
-          else
-            {
-              values[0] = g_strdup_printf ("%d", r);
-              values[1] = g_strdup_printf ("%d", g);
-              values[2] = g_strdup_printf ("%d", b);
-              values[3] = g_strdup_printf ("%d", a);
-            }
-
-          values[4] = g_strdup_printf ("%.2x%.2x%.2x", r, g, b);
-        }
       break;
 
     case GIMP_COLOR_PICK_MODE_HSV:
@@ -1085,22 +1149,23 @@ gimp_color_frame_update (GimpColorFrame *frame)
 
     case GIMP_COLOR_PICK_MODE_CMYK:
       {
-        const Babl *space = NULL;
+        GimpColorProfile *simulation_profile = NULL;
+        const Babl       *simulation_space   = NULL;
 
         /* Try to load CMYK profile in the following order:
          * 1) Soft-Proof Profile set in the View Menu
          * 2) Preferred CMYK Profile set in Preferences
          * 3) No CMYK Profile (Default Values)
          */
-        color_profile = frame->view_profile;
+        simulation_profile = frame->view_profile;
 
-        if (! color_profile && frame->config)
-          color_profile = gimp_color_config_get_cmyk_color_profile (frame->config,
-                                                                    NULL);
-        if (color_profile)
-          space = gimp_color_profile_get_space (color_profile,
-                                                frame->simulation_intent,
-                                                NULL);
+        if (! simulation_profile && frame->config)
+          simulation_profile = gimp_color_config_get_cmyk_color_profile (frame->config,
+                                                                         NULL);
+        if (simulation_profile)
+          simulation_space = gimp_color_profile_get_space (simulation_profile,
+                                                           frame->simulation_intent,
+                                                           NULL);
 
         /* TRANSLATORS: C for Cyan (CMYK) */
         names[0] = C_("CMYK", "C:");
@@ -1113,7 +1178,7 @@ gimp_color_frame_update (GimpColorFrame *frame)
         if (has_alpha)
           /* TRANSLATORS: A for Alpha (color transparency) */
           names[4] = C_("Alpha channel", "A:");
-        if (color_profile)
+        if (simulation_profile)
           names[5] = C_("Color", "Profile:");
         else
           names[5] = C_("Color", "No Profile");
@@ -1125,8 +1190,8 @@ gimp_color_frame_update (GimpColorFrame *frame)
             const gchar *profile_label;
 
             /* User may swap CMYK color profiles at runtime */
-            fish = babl_fish (babl_format ("R'G'B'A double"),
-                              babl_format_with_space ("CMYK float", space));
+            fish = babl_fish (babl_format_with_space ("R'G'B'A double", space),
+                              babl_format_with_space ("CMYK float", simulation_space));
 
             babl_process (fish, &frame->color, cmyk, 1);
 
@@ -1138,13 +1203,16 @@ gimp_color_frame_update (GimpColorFrame *frame)
             values[3] = g_strdup_printf ("%.0f %%", cmyk[3] * 100.0);
             if (has_alpha)
               values[4] = g_strdup_printf ("%.01f %%", frame->color.a * 100.0);
-            if (color_profile)
+            if (simulation_profile)
               {
-                profile_label = gimp_color_profile_get_label (color_profile);
+                profile_label = gimp_color_profile_get_label (simulation_profile);
                 values[5] = g_strdup_printf (_("%s"), profile_label);
                 tooltip[5] = g_strdup_printf (_("%s"), profile_label);
               }
           }
+
+        if (simulation_profile)
+          g_object_unref (simulation_profile);
       }
       break;
     }
@@ -1185,6 +1253,20 @@ gimp_color_frame_image_changed (GimpColorFrame *frame,
     return;
 
   gimp_color_frame_set_image (frame, image);
+}
+
+static void
+gimp_color_frame_update_color_profile (GimpImage      *image,
+                                       GimpColorFrame *frame)
+{
+  g_return_if_fail (GIMP_IS_COLOR_FRAME (frame));
+
+  if (image && GIMP_IS_COLOR_FRAME (frame))
+    {
+      frame->profile = gimp_image_get_color_profile (image);
+
+      gimp_color_frame_update (frame);
+    }
 }
 
 static void

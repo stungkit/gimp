@@ -4081,7 +4081,8 @@ gimp_prop_color_area_notify (GObject    *config,
                                    gimp_prop_color_area_callback,
                                    config);
 
-  gimp_color_area_set_color (GIMP_COLOR_AREA (area), value);
+  gimp_color_area_set_color (GIMP_COLOR_AREA (area), value,
+                             NULL, NULL, NULL);
 
   g_free (value);
 

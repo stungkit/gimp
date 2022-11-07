@@ -21,6 +21,7 @@
 
 #include "config.h"
 
+#include <babl/babl.h>
 #include <gegl.h>
 #include <gtk/gtk.h>
 
@@ -319,7 +320,8 @@ gimp_color_area_set_property (GObject      *object,
   switch (property_id)
     {
     case PROP_COLOR:
-      gimp_color_area_set_color (area, g_value_get_boxed (value));
+      gimp_color_area_set_color (area, g_value_get_boxed (value),
+                                 NULL, NULL, NULL);
       break;
 
     case PROP_TYPE:
@@ -525,19 +527,44 @@ gimp_color_area_new (const GimpRGB     *color,
  * gimp_color_area_set_color:
  * @area: Pointer to a #GimpColorArea.
  * @color: Pointer to a #GimpRGB struct that defines the new color.
+ * @color_space: Pointer to a Babl space for the color
+ * @image_space: Pointer to a Babl space for the current image
+ * @display_space: Pointer to a Babl space for the display
  *
  * Sets @area to a different @color.
  **/
 void
 gimp_color_area_set_color (GimpColorArea *area,
-                           const GimpRGB *color)
+                           GimpRGB       *color,
+                           const Babl    *color_space,
+                           const Babl    *image_space,
+                           const Babl    *display_space)
 {
   GimpColorAreaPrivate *priv;
+  GimpRGB               temp_color;
+  const Babl           *fish;
 
   g_return_if_fail (GIMP_IS_COLOR_AREA (area));
   g_return_if_fail (color != NULL);
 
   priv = GET_PRIVATE (area);
+
+  /* Check if color is out of gamut for image color space */
+  babl_process (babl_fish (babl_format_with_space ("R'G'B'A double", color_space),
+                           babl_format_with_space ("R'G'B'A double", image_space)),
+                           color, &temp_color, 1);
+
+  if ((temp_color.r < 0.0 || temp_color.r > 1.0 ||
+       temp_color.g < 0.0 || temp_color.g > 1.0 ||
+       temp_color.b < 0.0 || temp_color.b > 1.0))
+    priv->out_of_gamut = TRUE;
+  else
+    priv->out_of_gamut = FALSE;
+
+  fish = babl_fish (babl_format_with_space ("R'G'B'A double", color_space),
+                    babl_format_with_space ("R'G'B'A double", display_space));
+
+  babl_process (fish, color, color, 1);
 
   if (gimp_rgba_distance (&priv->color, color) < GIMP_RGBA_EPSILON)
     return;
@@ -979,7 +1006,7 @@ gimp_color_area_drag_data_received (GtkWidget        *widget,
                  (gdouble) vals[2] / 0xffff,
                  (gdouble) vals[3] / 0xffff);
 
-  gimp_color_area_set_color (area, &color);
+  gimp_color_area_set_color (area, &color, NULL, NULL, NULL);
 }
 
 static void

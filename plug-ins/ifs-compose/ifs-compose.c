@@ -2083,7 +2083,7 @@ color_map_update (ColorMap *color_map)
 
   if (color_map->fixed_point)
     gimp_color_area_set_color (GIMP_COLOR_AREA (color_map->orig_preview),
-                               color_map->color);
+                               color_map->color, NULL, NULL, NULL);
 }
 
 static void

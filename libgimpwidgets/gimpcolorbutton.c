@@ -716,7 +716,8 @@ gimp_color_button_set_color (GimpColorButton *button,
 
   priv = GET_PRIVATE (button);
 
-  gimp_color_area_set_color (GIMP_COLOR_AREA (priv->color_area), color);
+  gimp_color_area_set_color (GIMP_COLOR_AREA (priv->color_area), color,
+                             NULL, NULL, NULL);
 
   g_object_notify (G_OBJECT (button), "color");
 }
@@ -1024,7 +1025,8 @@ gimp_color_button_selection_changed (GtkWidget       *selection,
                                        gimp_color_button_area_changed,
                                        button);
 
-      gimp_color_area_set_color (GIMP_COLOR_AREA (priv->color_area), &color);
+      gimp_color_area_set_color (GIMP_COLOR_AREA (priv->color_area), &color,
+                                 NULL, NULL, NULL);
 
       g_signal_handlers_unblock_by_func (priv->color_area,
                                          gimp_color_button_area_changed,

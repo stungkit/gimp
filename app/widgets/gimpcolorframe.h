@@ -70,6 +70,7 @@ struct _GimpColorFrame
   GimpImage          *image;
 
   GimpColorConfig    *config;
+  GimpColorProfile   *profile;
   GimpColorProfile   *view_profile;
   GimpColorRenderingIntent
                       simulation_intent;
