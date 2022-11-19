@@ -284,8 +284,8 @@ gimp_text_layout_get_transform (GimpTextLayout *layout,
                                 cairo_matrix_t *matrix)
 {
   GimpText *text;
-  gdouble   xres;
-  gdouble   yres;
+  gdouble   xres = 1.0;
+  gdouble   yres = 1.0;
   gdouble   norm;
 
   g_return_if_fail (GIMP_IS_TEXT_LAYOUT (layout));
@@ -609,6 +609,7 @@ gimp_text_layout_position (GimpTextLayout *layout)
   PangoContext   *context;
   gint            x1, y1;
   gint            x2, y2;
+  gint            border;
 
   layout->extents.x      = 0;
   layout->extents.y      = 0;
@@ -674,10 +675,14 @@ gimp_text_layout_position (GimpTextLayout *layout)
        }
     }
 
-  if (layout->text->border > 0)
-    {
-      gint border = layout->text->border;
+  border = (layout->text->border > 0) ? layout->text->border : 0;
 
+  if (layout->text->outline != GIMP_TEXT_OUTLINE_NONE &&
+      layout->text->outline_direction != GIMP_TEXT_OUTLINE_DIRECTION_INNER)
+    border += layout->text->outline_width;
+
+  if (border > 0)
+    {
       layout->extents.x      += border;
       layout->extents.y      += border;
       layout->extents.width  += 2 * border;

@@ -79,6 +79,7 @@ enum
   PROP_OUTLINE_FOREGROUND,  /* context */
   PROP_OUTLINE_PATTERN,     /* context */
   PROP_OUTLINE_WIDTH,       /* stroke-options */
+  PROP_OUTLINE_DIRECTION,
   PROP_OUTLINE_UNIT,
   PROP_OUTLINE_CAP_STYLE,
   PROP_OUTLINE_JOIN_STYLE,
@@ -350,6 +351,11 @@ gimp_text_class_init (GimpTextClass *klass)
                             0.0, 8192.0, 4.0,
                             GIMP_PARAM_STATIC_STRINGS |
                             GIMP_CONFIG_PARAM_DEFAULTS);
+   GIMP_CONFIG_PROP_ENUM (object_class, PROP_OUTLINE_DIRECTION,
+                          "outline-direction", NULL, NULL,
+                          GIMP_TYPE_TEXT_OUTLINE_DIRECTION,
+                          GIMP_TEXT_OUTLINE_DIRECTION_OUTER,
+                          GIMP_PARAM_STATIC_STRINGS);
    GIMP_CONFIG_PROP_ENUM (object_class, PROP_OUTLINE_CAP_STYLE,
                           "outline-cap-style", NULL, NULL,
                           GIMP_TYPE_CAP_STYLE, GIMP_CAP_BUTT,
@@ -361,7 +367,7 @@ gimp_text_class_init (GimpTextClass *klass)
    GIMP_CONFIG_PROP_DOUBLE (object_class, PROP_OUTLINE_MITER_LIMIT,
                             "outline-miter-limit",
                             NULL, NULL,
-                            0.0, 100.0, 10.0,
+                            0.0, 100.0, 2.0,
                             GIMP_PARAM_STATIC_STRINGS);
    GIMP_CONFIG_PROP_BOOLEAN (object_class, PROP_OUTLINE_ANTIALIAS,
                              "outline-antialias", NULL, NULL,
@@ -511,6 +517,9 @@ gimp_text_get_property (GObject      *object,
       break;
     case PROP_OUTLINE_WIDTH:
       g_value_set_double (value, text->outline_width);
+      break;
+    case PROP_OUTLINE_DIRECTION:
+      g_value_set_enum (value, text->outline_direction);
       break;
     case PROP_OUTLINE_CAP_STYLE:
       g_value_set_enum (value, text->outline_cap_style);
@@ -684,6 +693,9 @@ gimp_text_set_property (GObject      *object,
       }
     case PROP_OUTLINE_WIDTH:
       text->outline_width = g_value_get_double (value);
+      break;
+    case PROP_OUTLINE_DIRECTION:
+      text->outline_direction = g_value_get_enum (value);
       break;
     case PROP_OUTLINE_CAP_STYLE:
       text->outline_cap_style = g_value_get_enum (value);
