@@ -21,7 +21,10 @@ endif
 
 executable(plugin_name,
   plugin_sources,
-  dependencies: libgimpui_dep,
+  dependencies: [
+   libgimpui_dep,
+   cfitsio_dep,
+  ],
   install: true,
   install_dir: gimpplugindir / 'plug-ins' / plugin_name,
 )

@@ -47,4 +47,5 @@ LDADD = \
 	$(GEGL_LIBS)		\
 	$(RT_LIBS)		\
 	$(INTLLIBS)		\
+	$(CFITSIO)		\
 	$(file_fits_RC)

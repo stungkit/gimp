@@ -45,6 +45,7 @@
 #include <libgimp/gimpui.h>
 
 #include "fits-io.h"
+#include <fitsio.h>
 
 #include "libgimp/stdplugins-intl.h"
 
@@ -73,6 +74,15 @@ struct _FitsClass
 #define FITS (obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), FITS_TYPE, Fits))
 
 GType                   fits_get_type         (void) G_GNUC_CONST;
+
+typedef struct
+{
+  gint   naxis;
+  glong  naxisn[3];
+  gint   bitpix;
+  gint   bpp;
+  gint   datatype;
+} FitsHduData;
 
 static GList          * fits_query_procedures (GimpPlugIn           *plug_in);
 static GimpProcedure  * fits_create_procedure (GimpPlugIn           *plug_in,
@@ -121,15 +131,9 @@ static GimpImage      * create_new_image      (GFile              *file,
                                                GimpLayer         **layer,
                                                GeglBuffer        **buffer);
 
-static GimpImage      * load_fits             (GFile              *file,
-                                               FitsFile           *ifp,
-                                               GObject            *config,
-                                               guint               picnum,
-                                               guint               ncompose);
-
 static gboolean         load_dialog           (GimpProcedure      *procedure,
                                                GObject            *config);
-static void             show_fits_errors      (void);
+static void             show_fits_errors      (gint                status);
 
 
 G_DEFINE_TYPE (Fits, fits, GIMP_TYPE_PLUG_IN)
@@ -180,9 +184,9 @@ fits_create_procedure (GimpPlugIn  *plug_in,
                                      N_("Flexible Image Transport System"));
 
       gimp_procedure_set_documentation (procedure,
-                                        "Load file of the FITS file format",
-                                        "Load file of the FITS file format "
-                                        "(Flexible Image Transport System)",
+                                        _("Load file of the FITS file format"),
+                                        _("Load file of the FITS file format "
+                                          "(Flexible Image Transport System)"),
                                         name);
       gimp_procedure_set_attribution (procedure,
                                       "Peter Kirchgessner",
@@ -197,22 +201,16 @@ fits_create_procedure (GimpPlugIn  *plug_in,
                                       "0,string,SIMPLE");
 
       GIMP_PROC_AUX_ARG_INT (procedure, "replace",
-                             "Replace",
-                             "Replacement for undefined pixels",
+                             _("Replacement for undefined pixels"),
+                             _("Replacement for undefined pixels"),
                              0, 255, 0,
                              G_PARAM_READWRITE);
 
-      GIMP_PROC_AUX_ARG_BOOLEAN (procedure, "use-data-min-max",
-                                 "Use data min max",
-                                 "Use DATAMIN/DATAMAX-scaling if possible",
-                                 FALSE,
-                                 G_PARAM_READWRITE);
-
-      GIMP_PROC_AUX_ARG_BOOLEAN (procedure, "compose",
-                                 "Compose",
-                                 "Image composing",
-                                 FALSE,
-                                 G_PARAM_READWRITE);
+      GIMP_PROC_AUX_ARG_INT (procedure, "use-data-min-max",
+                             _("Pixel value scaling"),
+                             _("Use DATAMIN/DATAMAX-scaling if possible"),
+                             0, 1, 0,
+                             G_PARAM_READWRITE);
     }
   else if (! strcmp (name, SAVE_PROC))
     {
@@ -226,9 +224,9 @@ fits_create_procedure (GimpPlugIn  *plug_in,
                                      N_("Flexible Image Transport System"));
 
       gimp_procedure_set_documentation (procedure,
-                                        "Export file in the FITS file format",
-                                        "FITS exporting handles all image "
-                                        "types except those with alpha channels.",
+                                        _("Export file in the FITS file format"),
+                                        _("FITS exporting handles all image "
+                                          "types except those with alpha channels."),
                                         name);
       gimp_procedure_set_attribution (procedure,
                                       "Peter Kirchgessner",
@@ -270,9 +268,6 @@ fits_load (GimpProcedure        *procedure,
     }
 
   image = load_image (file, G_OBJECT (config), run_mode, &error);
-
-  /* Write out error messages of FITS-Library */
-  show_fits_errors ();
 
   if (! image)
     return gimp_procedure_new_return_values (procedure,
@@ -358,19 +353,35 @@ load_image (GFile        *file,
             GimpRunMode   run_mode,
             GError      **error)
 {
-  GimpImage   *image;
-  GimpImage  **image_list;
-  GimpImage  **nl;
-  guint        picnum;
-  gint         k, n_images, max_images, hdu_picnum;
-  gint         compose;
-  FILE        *fp;
-  FitsFile    *ifp;
-  FitsHduList *hdu;
-  gboolean     compose_arg;
+  GimpImage         *image       = NULL;
+  GimpLayer         *layer;
+  GeglBuffer        *buffer;
+  FILE              *fp;
+  fitsfile          *ifp;
+  FitsHduData        hdu;
+  gint               n_pics;
+  gint               count       = 1;
+  gint               width;
+  gint               height;
+  gint               row_length;
+  int                status      = 0;
+  glong              fpixel[3]   = {1, 1, 1};
+  GimpImageBaseType  itype       = GIMP_GRAY;
+  GimpImageType      dtype       = GIMP_GRAYA_IMAGE;
+  GimpPrecision      iprecision  = GIMP_PRECISION_U16_NON_LINEAR;
+  const Babl        *type        = NULL;
+  const Babl        *format      = NULL;
+  gdouble           *pixels;
+  gdouble            datamin     = 1.0E30f;
+  gdouble            datamax     = -1.0E30f;
+  gint               channels    = 1;
+  gint               replace;
+  gdouble            replace_val = 0;
+  gboolean           use_datamin;
 
   g_object_get (config,
-                "compose", &compose_arg,
+                "replace",          &replace,
+                "use-data-min-max", &use_datamin,
                 NULL);
 
   fp = g_fopen (g_file_peek_path (file), "rb");
@@ -385,7 +396,9 @@ load_image (GFile        *file,
 
   fclose (fp);
 
-  ifp = fits_open (g_file_peek_path (file), "r");
+  fits_open_diskfile (&ifp, g_file_peek_path (file), READONLY, &status);
+  if (status)
+    show_fits_errors (status);
 
   if (! ifp)
     {
@@ -394,76 +407,203 @@ load_image (GFile        *file,
       return NULL;
     }
 
-  if (ifp->n_pic <= 0)
+  /* Get first item */
+  fits_get_num_hdus (ifp, &n_pics, &status);
+
+  if (status)
+    show_fits_errors (status);
+
+  if (n_pics <= 0)
     {
       g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
                    "%s", _("FITS file keeps no displayable images"));
-      fits_close (ifp);
+      fits_close_file (ifp, &status);
       return NULL;
     }
 
-  image_list = g_new (GimpImage *, 10);
-  n_images = 0;
-  max_images = 10;
-
-  for (picnum = 1; picnum <= ifp->n_pic; )
+  while (count <= n_pics)
     {
-      /* Get image info to see if we can compose them */
-      hdu = fits_image_info (ifp, picnum, &hdu_picnum);
-      if (hdu == NULL)
-        break;
+      hdu.naxis = 0;
 
-      /* Get number of FITS-images to compose */
-      compose = (compose_arg && (hdu_picnum == 1) && (hdu->naxis == 3) &&
-                 (hdu->naxisn[2] > 1) && (hdu->naxisn[2] <= 4));
+      fits_movabs_hdu (ifp, count, NULL, &status);
 
-      if (compose)
-        compose = hdu->naxisn[2];
-      else
-        compose = 1;  /* Load as GRAY */
+      if (status)
+        show_fits_errors (status);
 
-      image = load_fits (file, ifp, config, picnum, compose);
+      fits_get_img_param (ifp, 3, &hdu.bitpix, &hdu.naxis, hdu.naxisn,
+                          &status);
 
-      /* Write out error messages of FITS-Library */
-      show_fits_errors ();
+      width  = hdu.naxisn[0];
+      height = hdu.naxisn[1];
+
+      if (status)
+        show_fits_errors (status);
+
+      /* Skip if invalid dimensions; possibly header data */
+      if (hdu.naxis < 2)
+        {
+          count++;
+          continue;
+        }
+
+      type = babl_type ("double");
+      switch (hdu.bitpix)
+      {
+        case 8:
+          iprecision = GIMP_PRECISION_U8_LINEAR;
+          if (replace)
+            replace_val = 255;
+          break;
+        case 16:
+          iprecision = GIMP_PRECISION_U16_NON_LINEAR;
+          if (replace)
+            replace_val = G_MAXSHORT;
+          break;
+        case 32:
+          iprecision = GIMP_PRECISION_U32_LINEAR;
+          if (replace)
+            replace_val = G_MAXINT;
+          break;
+        case -32:
+          iprecision = GIMP_PRECISION_FLOAT_LINEAR;
+          if (replace)
+            replace_val = G_MAXFLOAT;
+          break;
+        case -64:
+          iprecision = GIMP_PRECISION_DOUBLE_LINEAR;
+          if (replace)
+            replace_val = G_MAXDOUBLE;
+          break;
+      }
+
+      if (hdu.naxis == 2)
+        {
+          itype = GIMP_GRAY;
+          dtype = GIMP_GRAYA_IMAGE;
+          format = babl_format_new (babl_model ("Y'"),
+                                    type,
+                                    babl_component ("Y'"),
+                                    NULL);
+        }
+      else if (hdu.naxisn[2])
+        {
+          /* Original RGB format */
+          if (hdu.naxisn[0] == 3)
+            {
+              width  = hdu.naxisn[1];
+              height = hdu.naxisn[2];
+            }
+          channels = 3;
+
+          itype  = GIMP_RGB;
+          dtype  = GIMP_RGB_IMAGE;
+          format = babl_format_new (babl_model ("R'G'B'"),
+                                    type,
+                                    babl_component ("R'"),
+                                    babl_component ("G'"),
+                                    babl_component ("B'"),
+                                    NULL);
+        }
+
+      /* If RGB FITS image, we need to increase the size by the number of channels */
+      pixels = (gdouble *) malloc (width * sizeof (gdouble) * channels);
 
       if (! image)
-        break;
-
-      if (n_images == max_images)
         {
-          nl = (GimpImage **) g_realloc (image_list,
-                                         (max_images + 10) * sizeof (GimpImage *));
-          if (nl == NULL)
+          image = create_new_image (file, count, width, height,
+                                    itype, dtype, iprecision,
+                                    &layer, &buffer);
+        }
+      else
+        {
+          layer = gimp_layer_new (image, _("FITS HDU"), width, height,
+                                  dtype, 100,
+                                  gimp_image_get_default_new_layer_mode (image));
+          gimp_image_insert_layer (image, layer, NULL, 0);
+          buffer = gimp_drawable_get_buffer (GIMP_DRAWABLE (layer));
+        }
+
+      row_length = width * channels;
+
+      /* Calculate min/max pixel value for normalizing */
+      for (fpixel[1] = height; fpixel[1] >= 1; fpixel[1]--)
+        {
+          if (fits_read_pix (ifp, TDOUBLE, fpixel, row_length, NULL,
+                             pixels, NULL, &status))
             break;
 
-          image_list = nl;
-          max_images += 10;
+          for (gint ii = 0; ii < row_length; ii++)
+            {
+              if (pixels[ii] < datamin)
+                datamin = pixels[ii];
+
+              if (pixels[ii] > datamax)
+                datamax = pixels[ii];
+            }
         }
 
-      image_list[n_images++] = image;
+      if (status)
+        show_fits_errors (status);
 
-      picnum += compose;
-    }
-
-  /* Write out error messages of FITS-Library */
-  show_fits_errors ();
-
-  fits_close (ifp);
-
-  /* Display images in reverse order. The last will be displayed by GIMP itself*/
-  if (run_mode != GIMP_RUN_NONINTERACTIVE)
-    {
-      for (k = n_images-1; k >= 1; k--)
+      /* Read pixel values in */
+      for (fpixel[1] = height; fpixel[1] >= 1; fpixel[1]--)
         {
-          gimp_image_undo_enable (image_list[k]);
-          gimp_image_clean_all (image_list[k]);
-          gimp_display_new (image_list[k]);
+          gdouble *temp =
+            (gdouble *) malloc (width * sizeof (gdouble) * channels);
+
+          if (fits_read_pix (ifp, TDOUBLE, fpixel, row_length, &replace_val,
+                             pixels, NULL, &status))
+            break;
+
+          if (datamin < datamax)
+            {
+              for (gint ii = 0; ii < row_length; ii++)
+                pixels[ii] = (pixels[ii] - datamin) / (datamax - datamin);
+            }
+
+          if (hdu.naxisn[2] && hdu.naxisn[2] == 3) /* Packed RGB format */
+            {
+              /* Cover planes to RGB format */
+              for (gint ii = 0; ii < (row_length / 3); ii++)
+                {
+                  temp[(ii * 3)]     = pixels[ii];
+                  temp[(ii * 3) + 1] = pixels[ii + (row_length / 3)];
+                  temp[(ii * 3) + 2] = pixels[ii + ((row_length / 3) * 2)];
+                }
+            }
+          else
+            {
+              temp = pixels;
+            }
+
+          gegl_buffer_set (buffer,
+                           GEGL_RECTANGLE (0, height - fpixel[1],
+                                           width, 1), 0,
+                           format, temp, GEGL_AUTO_ROWSTRIDE);
         }
+      if (status)
+        show_fits_errors (status);
+
+      g_object_unref (buffer);
+      if (pixels)
+        g_free (pixels);
+
+      count++;
     }
 
-  image = (n_images > 0) ? image_list[0] : NULL;
-  g_free (image_list);
+  /* As there might be different sized layers,
+   * we need to resize the canvas afterwards */
+  gimp_image_resize_to_layers (image);
+
+  fits_close_file (ifp, &status);
+
+  if (! image)
+    {
+      g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                   "%s", _("FITS file keeps no displayable images"));
+      fits_close_file (ifp, &status);
+      return NULL;
+    }
 
   return image;
 }
@@ -548,290 +688,6 @@ create_new_image (GFile              *file,
 
   return image;
 }
-
-
-/* Load FITS image. ncompose gives the number of FITS-images which have
- * to be composed together. This will result in different GIMP image types:
- * 1: GRAY, 2: GRAYA, 3: RGB, 4: RGBA
- */
-static GimpImage *
-load_fits (GFile    *file,
-           FitsFile *ifp,
-           GObject  *config,
-           guint     picnum,
-           guint     ncompose)
-{
-  register guchar   *dest, *src;
-  guchar            *data, *data_end, *linebuf;
-  int                width, height, tile_height, scan_lines;
-  int                i, j, max_scan;
-  double             a, b;
-  GimpImage         *image;
-  GimpLayer         *layer;
-  GeglBuffer        *buffer;
-  GimpImageBaseType  itype;
-  GimpImageType      dtype;
-  GimpPrecision      iprecision;
-  gint               err = 0;
-  FitsHduList       *hdulist;
-  FitsPixTransform   trans;
-  double             datamax, replacetransform;
-  const Babl        *type, *format;
-  gint               replace;
-  gboolean           use_datamin;
-
-  g_object_get (config,
-                "replace",          &replace,
-                "use-data-min-max", &use_datamin,
-                NULL);
-
-  hdulist = fits_seek_image (ifp, (int)picnum);
-  if (hdulist == NULL)
-    return NULL;
-
-  width  = hdulist->naxisn[0];  /* Set the size of the FITS image */
-  height = hdulist->naxisn[1];
-
-  switch (hdulist->bitpix)
-    {
-    case 8:
-      iprecision = GIMP_PRECISION_U8_NON_LINEAR;
-      type = babl_type ("u8");
-      datamax = 255.0;
-      replacetransform = 1.0;
-      break;
-    case 16:
-      iprecision = GIMP_PRECISION_U16_NON_LINEAR; /* FIXME precision */
-      type = babl_type ("u16");
-      datamax = 65535.0;
-      replacetransform = 257;
-      break;
-    case 32:
-      iprecision = GIMP_PRECISION_U32_LINEAR;
-      type = babl_type ("u32");
-      datamax = 4294967295.0;
-      replacetransform = 16843009;
-      break;
-    case -32:
-      iprecision = GIMP_PRECISION_FLOAT_LINEAR;
-      type = babl_type ("float");
-      datamax = 1.0;
-      replacetransform = 1.0 / 255.0;
-      break;
-    case -64:
-      iprecision = GIMP_PRECISION_DOUBLE_LINEAR;
-      type = babl_type ("double");
-      datamax = 1.0;
-      replacetransform = 1.0 / 255.0;
-      break;
-    default:
-      return NULL;
-    }
-
-  if (ncompose == 2)
-    {
-      itype = GIMP_GRAY;
-      dtype = GIMP_GRAYA_IMAGE;
-      format = babl_format_new (babl_model ("Y'A"),
-                                type,
-                                babl_component ("Y'"),
-                                babl_component ("A"),
-                                NULL);
-    }
-  else if (ncompose == 3)
-    {
-      itype = GIMP_RGB;
-      dtype = GIMP_RGB_IMAGE;
-      format = babl_format_new (babl_model ("R'G'B'"),
-                                type,
-                                babl_component ("R'"),
-                                babl_component ("G'"),
-                                babl_component ("B'"),
-                                NULL);
-    }
-  else if (ncompose == 4)
-    {
-      itype = GIMP_RGB;
-      dtype = GIMP_RGBA_IMAGE;
-      format = babl_format_new (babl_model ("R'G'B'A"),
-                                type,
-                                babl_component ("R'"),
-                                babl_component ("G'"),
-                                babl_component ("B'"),
-                                babl_component ("A"),
-                                NULL);
-    }
-  else
-    {
-      ncompose = 1;
-      itype = GIMP_GRAY;
-      dtype = GIMP_GRAY_IMAGE;
-      format = babl_format_new (babl_model ("Y'"),
-                                type,
-                                babl_component ("Y'"),
-                                NULL);
-    }
-
-  image = create_new_image (file, picnum, width, height,
-                            itype, dtype, iprecision,
-                            &layer, &buffer);
-
-  tile_height = gimp_tile_height ();
-
-  data = g_malloc (tile_height * width * ncompose * hdulist->bpp);
-  if (data == NULL)
-    return NULL;
-
-  data_end = data + tile_height * width * ncompose * hdulist->bpp;
-
-  /* If the transformation from pixel value to data value has been
-   * specified, use it
-   */
-  if (use_datamin &&
-      hdulist->used.datamin && hdulist->used.datamax &&
-      hdulist->used.bzero   && hdulist->used.bscale)
-    {
-      a = (hdulist->datamin - hdulist->bzero) / hdulist->bscale;
-      b = (hdulist->datamax - hdulist->bzero) / hdulist->bscale;
-
-      if (a < b)
-        trans.pixmin = a, trans.pixmax = b;
-      else
-        trans.pixmin = b, trans.pixmax = a;
-    }
-  else
-    {
-      trans.pixmin = hdulist->pixmin;
-      trans.pixmax = hdulist->pixmax;
-    }
-
-  trans.datamin     = 0.0;
-  trans.datamax     = datamax;
-  trans.replacement = replace * replacetransform;
-  trans.dsttyp      = 'k';
-
-  /* FITS stores images with bottom row first. Therefore we have to
-   * fill the image from bottom to top.
-   */
-
-  if (ncompose == 1)
-    {
-      dest = data + tile_height * width * hdulist->bpp;
-      scan_lines = 0;
-
-      for (i = 0; i < height; i++)
-        {
-          /* Read FITS line */
-          dest -= width * hdulist->bpp;
-          if (fits_read_pixel (ifp, hdulist, width, &trans, dest) != width)
-            {
-              err = 1;
-              break;
-            }
-
-          scan_lines++;
-
-          if ((i % 20) == 0)
-            gimp_progress_update ((gdouble) (i + 1) / (gdouble) height);
-
-          if ((scan_lines == tile_height) || ((i + 1) == height))
-            {
-              gegl_buffer_set (buffer,
-                               GEGL_RECTANGLE (0, height - i - 1,
-                                               width, scan_lines), 0,
-                               format, dest, GEGL_AUTO_ROWSTRIDE);
-
-              scan_lines = 0;
-              dest = data + tile_height * width * hdulist->bpp;
-            }
-
-          if (err)
-            break;
-        }
-    }
-  else   /* multiple images to compose */
-    {
-      gint channel;
-
-      linebuf = g_malloc (width * hdulist->bpp);
-      if (linebuf == NULL)
-        return NULL;
-
-      for (channel = 0; channel < ncompose; channel++)
-        {
-          dest = data + tile_height * width * hdulist->bpp * ncompose + channel * hdulist->bpp;
-          scan_lines = 0;
-
-          for (i = 0; i < height; i++)
-            {
-              if ((channel > 0) && ((i % tile_height) == 0))
-                {
-                  /* Reload a region for follow up channels */
-                  max_scan = tile_height;
-
-                  if (i + tile_height > height)
-                    max_scan = height - i;
-
-                  gegl_buffer_get (buffer,
-                                   GEGL_RECTANGLE (0, height - i - max_scan,
-                                                   width, max_scan), 1.0,
-                                   format, data_end - max_scan * width * hdulist->bpp * ncompose,
-                                   GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
-                }
-
-              /* Read FITS scanline */
-              dest -= width * ncompose * hdulist->bpp;
-              if (fits_read_pixel (ifp, hdulist, width, &trans, linebuf) != width)
-                {
-                  err = 1;
-                  break;
-                }
-              j = width;
-              src = linebuf;
-              while (j--)
-                {
-                  memcpy (dest, src, hdulist->bpp);
-                  src += hdulist->bpp;
-                  dest += ncompose * hdulist->bpp;
-                }
-              dest -= width * ncompose * hdulist->bpp;
-              scan_lines++;
-
-              if ((i % 20) == 0)
-                gimp_progress_update ((gdouble) (channel * height + i + 1) /
-                                      (gdouble) (height * ncompose));
-
-              if ((scan_lines == tile_height) || ((i + 1) == height))
-                {
-                  gegl_buffer_set (buffer,
-                                   GEGL_RECTANGLE (0, height - i - 1,
-                                                   width, scan_lines), 0,
-                                   format, dest - channel * hdulist->bpp, GEGL_AUTO_ROWSTRIDE);
-
-                  scan_lines = 0;
-                  dest = data + tile_height * width * ncompose * hdulist->bpp + channel * hdulist->bpp;
-                }
-
-              if (err)
-                break;
-            }
-        }
-
-      g_free (linebuf);
-    }
-
-  g_free (data);
-
-  if (err)
-    g_message (_("EOF encountered on reading"));
-
-  g_object_unref (buffer);
-
-  gimp_progress_update (1.0);
-
-  return err ? NULL : image;
-}
-
 
 static FitsHduList *
 create_fits_header (FitsFile *ofp,
@@ -1160,7 +1016,6 @@ load_dialog (GimpProcedure *procedure,
              GObject       *config)
 {
   GtkWidget    *dialog;
-  GtkWidget    *vbox;
   GtkListStore *store;
   GtkWidget    *frame;
   gboolean      run;
@@ -1171,31 +1026,26 @@ load_dialog (GimpProcedure *procedure,
                                       GIMP_PROCEDURE_CONFIG (config),
                                       _("Open FITS File"));
 
-  vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
-  gtk_container_set_border_width (GTK_CONTAINER (vbox), 12);
-  gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (dialog))),
-                      vbox, TRUE, TRUE, 0);
-  gtk_widget_show (vbox);
+  gimp_window_set_transient (GTK_WINDOW (dialog));
 
-  store = gimp_int_store_new (_("_Black"), 0,
-                              _("_White"), 255,
+  store = gimp_int_store_new (_("Black"), 0,
+                              _("White"), 255,
                               NULL);
-  frame = gimp_prop_int_radio_frame_new (config, "replace",
-                                         _("Replacement for undefined pixels"),
-                                         GIMP_INT_STORE (store));
-  gtk_box_pack_start (GTK_BOX (vbox), frame, FALSE, FALSE, 0);
+  frame = gimp_procedure_dialog_get_int_radio (GIMP_PROCEDURE_DIALOG (dialog),
+                                               "replace",
+                                               GIMP_INT_STORE (store));
+  gtk_widget_set_margin_bottom (frame, 12);
 
-  frame = gimp_prop_boolean_radio_frame_new (config, "use-data-min-max",
-                                             _("Pixel value scaling"),
-                                             _("By _DATAMIN/DATAMAX"),
-                                             _("_Automatic"));
-  gtk_box_pack_start (GTK_BOX (vbox), frame, FALSE, FALSE, 0);
+  store = gimp_int_store_new (_("Automatic"),          0,
+                              _("By DATAMIN/DATAMAX"), 1,
+                              NULL);
+  frame = gimp_procedure_dialog_get_int_radio (GIMP_PROCEDURE_DIALOG (dialog),
+                                               "use-data-min-max",
+                                               GIMP_INT_STORE (store));
+  gtk_widget_set_margin_bottom (frame, 12);
 
-  frame = gimp_prop_boolean_radio_frame_new (config, "compose",
-                                             _("Image Composing"),
-                                             "NA_XIS=3, NAXIS3=2,...,4",
-                                             C_("composing", "_None"));
-  gtk_box_pack_start (GTK_BOX (vbox), frame, FALSE, FALSE, 0);
+  gimp_procedure_dialog_fill (GIMP_PROCEDURE_DIALOG (dialog),
+                              NULL);
 
   gtk_widget_show (dialog);
 
@@ -1207,11 +1057,11 @@ load_dialog (GimpProcedure *procedure,
 }
 
 static void
-show_fits_errors (void)
+show_fits_errors (gint status)
 {
-  const gchar *msg;
+  gchar status_str[FLEN_STATUS];
 
   /* Write out error messages of FITS-Library */
-  while ((msg = fits_get_error ()) != NULL)
-    g_message ("%s", msg);
+  fits_get_errstatus (status, status_str);
+  g_message ("FITS: %s\n", status_str);
 }
