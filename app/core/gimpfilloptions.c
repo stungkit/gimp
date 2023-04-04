@@ -361,6 +361,11 @@ gimp_fill_options_set_by_fill_type (GimpFillOptions  *options,
       undo_desc = C_("undo-type", "Fill with Background Color");
       break;
 
+    case GIMP_FILL_NEUTRAL:
+      gimp_rgba_set (&color, 0.5, 0.5, 0.5, GIMP_OPACITY_OPAQUE);
+      undo_desc = C_("undo-type", "Fill with Neutral Gray");
+      break;
+
     case GIMP_FILL_WHITE:
       gimp_rgba_set (&color, 1.0, 1.0, 1.0, GIMP_OPACITY_OPAQUE);
       undo_desc = C_("undo-type", "Fill with White");

@@ -364,6 +364,7 @@ typedef enum
  * GimpFillType:
  * @GIMP_FILL_FOREGROUND:  Foreground color
  * @GIMP_FILL_BACKGROUND:  Background color
+ * @GIMP_FILL_NEUTRAL:     Neutral gray
  * @GIMP_FILL_WHITE:       White
  * @GIMP_FILL_TRANSPARENT: Transparency
  * @GIMP_FILL_PATTERN:     Pattern
@@ -378,6 +379,7 @@ typedef enum
 {
   GIMP_FILL_FOREGROUND,  /*< desc="Foreground color" >*/
   GIMP_FILL_BACKGROUND,  /*< desc="Background color" >*/
+  GIMP_FILL_NEUTRAL,     /*< desc="Neutral gray"     >*/
   GIMP_FILL_WHITE,       /*< desc="White"            >*/
   GIMP_FILL_TRANSPARENT, /*< desc="Transparency"     >*/
   GIMP_FILL_PATTERN      /*< desc="Pattern"          >*/

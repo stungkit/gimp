@@ -550,6 +550,10 @@ gimp_get_fill_params (GimpContext   *context,
       gimp_context_get_background (context, color);
       break;
 
+    case GIMP_FILL_NEUTRAL:
+      gimp_rgba_set (color, 0.5, 0.5, 0.5, GIMP_OPACITY_OPAQUE);
+      break;
+
     case GIMP_FILL_WHITE:
       gimp_rgba_set (color, 1.0, 1.0, 1.0, GIMP_OPACITY_OPAQUE);
       break;
