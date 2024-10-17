@@ -1,6 +1,8 @@
 /* LIBGIMP - The GIMP Library
  * Copyright (C) 1995-1997 Peter Mattis and Spencer Kimball
  *
+ * gimpcpuaccel-private.h
+ *
  * This library is free software: you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -16,31 +18,15 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __GIMP_BASE_H__
-#define __GIMP_BASE_H__
+#ifndef __GIMP_CPU_ACCEL_PRIVATE_H__
+#define __GIMP_CPU_ACCEL_PRIVATE_H__
 
-#define __GIMP_BASE_H_INSIDE__
+G_BEGIN_DECLS
 
-#include <gegl.h>
 
-#include <libgimpbase/gimpbasetypes.h>
+void gimp_cpu_accel_set_use (gboolean use);
 
-#include <libgimpbase/gimpchecks.h>
-#include <libgimpbase/gimpchoice.h>
-#include <libgimpbase/gimpcpuaccel.h>
-#include <libgimpbase/gimpenv.h>
-#include <libgimpbase/gimpexportoptions.h>
-#include <libgimpbase/gimplimits.h>
-#include <libgimpbase/gimpmemsize.h>
-#include <libgimpbase/gimpmetadata.h>
-#include <libgimpbase/gimpparamspecs.h>
-#include <libgimpbase/gimpparasite.h>
-#include <libgimpbase/gimprectangle.h>
-#include <libgimpbase/gimpunit.h>
-#include <libgimpbase/gimputils.h>
-#include <libgimpbase/gimpversion.h>
-#include <libgimpbase/gimpvaluearray.h>
 
-#undef __GIMP_BASE_H_INSIDE__
+G_END_DECLS
 
-#endif  /* __GIMP_BASE_H__ */
+#endif  /* __GIMP_CPU_ACCEL_PRIVATE_H__ */

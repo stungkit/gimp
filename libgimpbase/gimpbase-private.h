@@ -23,6 +23,14 @@
 #define __GIMP_BASE_PRIVATE_H__
 
 
+#include <libgimpbase/gimpcpuaccel-private.h>
+#include <libgimpbase/gimpenv-private.h>
+
+#ifndef G_OS_WIN32
+#include <libgimpbase/gimpsignal.h>
+#endif
+
+
 typedef struct _GimpUnitVtable GimpUnitVtable;
 
 struct _GimpUnitVtable
